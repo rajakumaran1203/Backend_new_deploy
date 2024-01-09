@@ -1,117 +1,3 @@
-// import { Injectable } from '@nestjs/common';
-// import { inspect } from 'util';
-// import * as Imap from 'node-imap';
-// import { InjectModel } from '@nestjs/mongoose';
-// import { Model } from 'mongoose';
-// import { EmailCount } from './email-count.model';
-
-// @Injectable()
-// export class EmailInboxService {
-//   private imap: any;
-
-//   constructor(@InjectModel(EmailCount.name) private readonly emailCountModel: Model<EmailCount>) {
-//     this.imap = new Imap({
-//       user: 'rajakumarandevloper@gmail.com',
-//       password: 'grmwpcokgoqgamht',
-//       host: 'imap.gmail.com',
-//       port: 993,
-//       tls: true,
-//     });
-//   }
-
-//   public async fetchEmails(): Promise<{ emails: any[]; totalMessages: number, failureCount: number }> {
-//     return new Promise<{ emails: any[]; totalMessages: number, failureCount: number }>((resolve, reject) => {
-//       const emails: any[] = [];
-//       let failureCount = 0;
-
-//       this.imap.once('ready', () => {
-//         this.openInbox((err, box) => {
-//           if (err) {
-//             reject(err);
-//           } else {
-//             const totalMessages = box.messages.total;
-//             const f = this.imap.seq.fetch('1:*', {
-//               bodies: 'HEADER.FIELDS (FROM TO SUBJECT DATE)',
-//               struct: true,
-//             });
-
-//             f.on('message', (msg, seqno) => {
-//               const prefix = '(#' + seqno + ') ';
-//               const email: any = {};
-//               msg.on('body', (stream, info) => {
-//                 let buffer = '';
-//                 stream.on('data', (chunk) => {
-//                   buffer += chunk.toString('utf8');
-//                 });
-//                 stream.once('end', () => {
-//                   const headers = Imap.parseHeader(buffer);
-//                   const fromAddress = headers['from'] && headers['from'].length > 0 ? headers['from'][0] : '';
-//                   email.sender = fromAddress;
-//                   email.header = inspect(headers);
-
-//                   const subjectArray = headers.subject || [];
-//                   const subjectString = subjectArray.join(', ');
-//                   const isFailure = subjectString.toLowerCase().includes('failure');
-//                   if (isFailure) {
-//                     failureCount++;
-//                   }
-//                 });
-//               });
-
-//               msg.once('attributes', (attrs) => {
-//                 email.attributes = attrs;
-//               });
-
-//               msg.once('end', () => {
-//                 emails.push(email);
-//               });
-//             });
-
-//             f.once('error', (fetchErr) => {
-//               reject(fetchErr);
-//             });
-
-//             f.once('end', () => {
-//               this.imap.end();
-//               this.updateEmailStats('rajakumarandevloper@gmail.com', totalMessages, failureCount);
-//               resolve({ emails, totalMessages, failureCount });
-//             });
-//           }
-//         });
-//       });
-
-//       this.imap.once('error', (err) => {
-//         reject(err);
-//       });
-
-//       this.imap.once('end', () => {
-//         console.log('Connection ended');
-//       });
-
-//       this.imap.connect();
-//     });
-//   }
-
-//   private openInbox(cb: (err: any, box: any) => void): void {
-//     this.imap.openBox('INBOX', true, cb);
-//   }
-//   private async updateEmailStats(emailAddress: string, totalMessages: number, failureCount: number): Promise<void> {
-//     let emailCount = await this.emailCountModel.findOne({ emailAddress }).exec();
-
-//     if (!emailCount) {
-//       emailCount = new this.emailCountModel({ emailAddress, totalMessages, failureCount });
-//     } else {
-//       emailCount.emailSent = totalMessages;
-//       emailCount.warmupEmailSent = failureCount;
-//     }
-
-//     await emailCount.save();
-//   } 
-//   async getAllEmailDetails(): Promise<EmailCount[]> {
-//     return this.emailCountModel.find().exec();
-//   }
-// }
-
 import { Injectable } from '@nestjs/common';
 import { inspect } from 'util';
 import * as Imap from 'node-imap';
@@ -119,13 +5,18 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { EmailCount } from './email-count.model';
 import { EmailCredentials } from './user_details';
+import {EmailWarmUp} from './warmup.model';
+import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class EmailInboxService {
+  private readonly logger = new Logger(EmailInboxService.name);
   private imap: any;
+  public emailsdata: any[] = [];
 
   constructor(@InjectModel(EmailCount.name) private readonly emailCountModel: Model<EmailCount>,
-  @InjectModel(EmailCredentials.name) private readonly emailCredentialsModel: Model<EmailCredentials>) {
+  @InjectModel(EmailCredentials.name) private readonly emailCredentialsModel: Model<EmailCredentials>,
+ @InjectModel(EmailWarmUp.name) private readonly emailWarmpupModel: Model<EmailWarmUp>) {
     this.imap = new Imap({});
   }
   async create(email: string, password: string): Promise<EmailCredentials> {
@@ -232,6 +123,7 @@ export class EmailInboxService {
               // const emailAddress = credentials.user
               const emailAddress = credentials.user;
               this.updateEmailStats(emailAddress, totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount);
+this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount);
               resolve({ emails, totalMessages, failureCount, emptyFlagsCount,nonEmptyFlagsCount });
             });
           }
@@ -269,5 +161,31 @@ export class EmailInboxService {
   } 
   async getAllEmailDetails(): Promise<EmailCount[]> {
     return this.emailCountModel.find().exec();
+  }
+  async createwarmup(emailAddress: string, totalMessages: number, failureCount: number, nonEmptyFlagsCount: number, emptyFlagsCount: number, isWarmUpOn: boolean, isRampUpOn: boolean, isselected: boolean,  handleCardSelection: string ): Promise<EmailWarmUp> {
+    try {
+      this.fetchEmails();
+      const [emailAddress, totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount] = this.emailsdata;
+      this.logger.log(`Creating warmup for ${emailAddress}`);
+      const emailWarmUp = new this.emailWarmpupModel({
+      emailAddress,
+      emailSent: totalMessages,
+      warmupEmailSent: failureCount,
+      Seen: nonEmptyFlagsCount,
+      Unseen: emptyFlagsCount,
+      isWarmUpOn,
+      isRampUpOn,
+      isselected,
+      handleCardSelection,
+    });
+
+    const result = await emailWarmUp.save();
+
+    this.logger.log(`Warmup created successfully for ${emailAddress}`);
+    return result;
+  } catch (error) {
+    this.logger.error(`Error creating warmup for ${emailAddress}: ${error.message}`);
+    throw error;
+  }
   }
 }

@@ -11,4 +11,8 @@ export class UserController {
   async getUserCreationData(): Promise<any[]> {
     return this.userService.getUserCreationData();
   }
+  @Get('email-counts')
+  async getEmailCounts(): Promise<{emailSent: number, totalSeen: number; totalUnseen: number; totalWarmupEmailSent: number }> {
+    return this.userService.getTotalSeenAndUnseen();
+  }
 }

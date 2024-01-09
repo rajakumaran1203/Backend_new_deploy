@@ -8,6 +8,7 @@ import {EmailModule} from './email/email.module';
 import {GraphModule} from './graph/graph.module';
 import {UserModule} from './user/user.module';
 import {EmailInboxModule} from './email_inbox/email.module';
+import {CsvModule} from './upload_file/csv.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import {EmailInboxModule} from './email_inbox/email.module';
       isGlobal: true,
     }),
     MongooseModule.forRoot(process.env.DB_URI),
+    CsvModule,
     EmailInboxModule,
     UserModule,
     TemplateModule,
