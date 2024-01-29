@@ -2,5 +2,6 @@
 export class CsvRecordDto {
     name: string;
     email: string;
+    isActive: boolean;
   }
   

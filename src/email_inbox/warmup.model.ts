@@ -22,11 +22,14 @@ export class EmailWarmUp extends Document {
   @Prop({ type: Boolean })
   isWarmUpOn: boolean;
 
-  @Prop({ type: Boolean })
-  isRampUpOn: boolean;
+  @Prop({type: Number})
+  totalWarmUpEmailsPerDay: number;
 
   @Prop({ type: Boolean })
-  isselected: boolean;
+  dailyRampUpEnabled: boolean;
+
+  @Prop({ type: Number })
+  rampUpIncrement: number;
 
   @Prop({ type: String, unique: true })
   handleCardSelection: string;

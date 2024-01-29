@@ -13,7 +13,6 @@ export class CsvController {
     try {
       const filePath = file.path;
       await this.csvService.processCsv(filePath);
-
       return 'File uploaded and processed successfully.';
     } catch (error) {
       if (error.message.startsWith('Duplicate email found:')) {
@@ -23,6 +22,11 @@ export class CsvController {
       }
     }
   }
+  // @Get('data')
+  // async getData(): Promise<CsvRecordDto[]> {
+  //   console.log("read");
+  //   return this.csvService.getData();
+  // }
   @Get('data')
   async getData(): Promise<{ count: number; records: CsvRecordDto[] }> {
     return this.csvService.getData();

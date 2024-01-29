@@ -4,11 +4,12 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import {TemplateModule} from './template/template.module';
-import {EmailModule} from './email/email.module';
+import {EmailModule} from './email_campaign/email.module';
 import {GraphModule} from './graph/graph.module';
 import {UserModule} from './user/user.module';
 import {EmailInboxModule} from './email_inbox/email.module';
 import {CsvModule} from './upload_file/csv.module';
+import { CampaignModule } from './email_campaign1/campaign.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import {CsvModule} from './upload_file/csv.module';
       isGlobal: true,
     }),
     MongooseModule.forRoot(process.env.DB_URI),
+    CampaignModule,
     CsvModule,
     EmailInboxModule,
     UserModule,

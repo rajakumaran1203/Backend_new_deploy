@@ -10,6 +10,9 @@ export class CsvRecord {
 
   @Prop({ unique: true })
   email: string;
+
+  @Prop()
+  isActive: boolean;
 }
 
 export const CsvRecordSchema = SchemaFactory.createForClass(CsvRecord);

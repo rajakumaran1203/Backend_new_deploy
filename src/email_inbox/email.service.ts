@@ -1,22 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException  } from '@nestjs/common';
 import { inspect } from 'util';
 import * as Imap from 'node-imap';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { EmailCount } from './email-count.model';
 import { EmailCredentials } from './user_details';
+import { promises } from 'dns';
 import {EmailWarmUp} from './warmup.model';
 import { Logger } from '@nestjs/common';
+import * as nodemailer from 'nodemailer';
+import { email_data } from './email-list.model';
+// import * as cron from 'cron';
+import * as cron from 'node-cron';
+import { Cron, CronExpression } from '@nestjs/schedule';
+
 
 @Injectable()
 export class EmailInboxService {
   private readonly logger = new Logger(EmailInboxService.name);
   private imap: any;
   public emailsdata: any[] = [];
+  private transporter: nodemailer.Transporter;
 
   constructor(@InjectModel(EmailCount.name) private readonly emailCountModel: Model<EmailCount>,
   @InjectModel(EmailCredentials.name) private readonly emailCredentialsModel: Model<EmailCredentials>,
- @InjectModel(EmailWarmUp.name) private readonly emailWarmpupModel: Model<EmailWarmUp>) {
+  @InjectModel(EmailWarmUp.name) private readonly emailWarmpupModel: Model<EmailWarmUp>,
+  @InjectModel(email_data.name) private readonly emailListModel: Model<email_data>) {
     this.imap = new Imap({});
   }
   async create(email: string, password: string): Promise<EmailCredentials> {
@@ -24,10 +33,31 @@ export class EmailInboxService {
     return createdEmailCredentials.save();
   }
 
+  async deleteByEmail(email: string): Promise<void> {
+    const result = await this.emailCredentialsModel.deleteOne({ user: email }).exec();
+    if (result.deletedCount === 0) {
+      throw new NotFoundException(`Email credentials with email '${email}' not found.`);
+    }
+  } 
   private async getEmailCredentials(): Promise<{ user: string; password: string } | null> {
     const credentials = await this.emailCredentialsModel.findOne().exec();
     return credentials ? { user: credentials.user, password: credentials.password } : null;
   }
+
+  // private async getAllEmailCredentials(): Promise<{ user: string; password: string }[] | null> {
+  //   const credentialsList = await this.emailCredentialsModel.find().exec();
+  //   return credentialsList.map(credentials => ({
+  //     user: credentials.user,
+  //     password: credentials.password,
+  //   }));
+  // }
+  async getAllEmailCredentials(): Promise<{ user: string;}[] | null> {
+    const credentialsList = await this.emailCredentialsModel.find().exec();
+    return credentialsList.map(credentials => ({
+      user: credentials.user,
+    }));
+  }
+
 
   public async fetchEmails(): Promise<{ emails: any[]; totalMessages: number, failureCount: number, emptyFlagsCount: number, nonEmptyFlagsCount:number }> {
     const credentials = await this.getEmailCredentials();
@@ -45,7 +75,6 @@ export class EmailInboxService {
       });
  
     } catch (error) {
-      // Handle errors appropriately
       throw error;
     }
     return new Promise<{ emails: any[]; totalMessages: number, failureCount: number, emptyFlagsCount:number, nonEmptyFlagsCount: number }>((resolve, reject) => {
@@ -103,14 +132,11 @@ export class EmailInboxService {
             f.once('end', () => {
               this.imap.end();
               const emptyFlagsCount = emails.filter((email) => !email.attributes.flags || email.attributes.flags.length === 0).length;
-
-              // Count flags when they are non-empty strings
               let nonEmptyFlagsCount = 0;
 
               emails.forEach((email) => {
                 if (email.attributes.flags && email.attributes.flags.length > 0) {
                   email.attributes.flags.forEach((flag) => {
-                    // Check if the flag is a non-empty string
                     if (typeof flag === 'string' && flag.trim() !== '') {
                       nonEmptyFlagsCount++;
                     }
@@ -118,12 +144,9 @@ export class EmailInboxService {
                 }
               });
 
-              console.log('Empty Flags Count:', emptyFlagsCount);
-              console.log('Non-Empty Flags Count:', nonEmptyFlagsCount);
-              // const emailAddress = credentials.user
               const emailAddress = credentials.user;
               this.updateEmailStats(emailAddress, totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount);
-this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount);
+              this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount);
               resolve({ emails, totalMessages, failureCount, emptyFlagsCount,nonEmptyFlagsCount });
             });
           }
@@ -137,7 +160,6 @@ this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, 
       this.imap.once('end', () => {
         console.log('Connection ended');
       });
-
       this.imap.connect();
     });
   }
@@ -162,7 +184,9 @@ this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, 
   async getAllEmailDetails(): Promise<EmailCount[]> {
     return this.emailCountModel.find().exec();
   }
-  async createwarmup(emailAddress: string, totalMessages: number, failureCount: number, nonEmptyFlagsCount: number, emptyFlagsCount: number, isWarmUpOn: boolean, isRampUpOn: boolean, isselected: boolean,  handleCardSelection: string ): Promise<EmailWarmUp> {
+
+
+  async createwarmup(emailAddress: string, totalMessages: number, failureCount: number, nonEmptyFlagsCount: number, emptyFlagsCount: number, isWarmUpOn: boolean, totalWarmUpEmailsPerDay: number, dailyRampUpEnabled: boolean, rampUpIncrement: number,  handleCardSelection: string ): Promise<EmailWarmUp> {
     try {
       this.fetchEmails();
       const [emailAddress, totalMessages, failureCount, emptyFlagsCount, nonEmptyFlagsCount] = this.emailsdata;
@@ -174,11 +198,15 @@ this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, 
       Seen: nonEmptyFlagsCount,
       Unseen: emptyFlagsCount,
       isWarmUpOn,
-      isRampUpOn,
-      isselected,
+      totalWarmUpEmailsPerDay,
+      dailyRampUpEnabled,
+      rampUpIncrement,
       handleCardSelection,
     });
-
+    if (isWarmUpOn) {
+      console.log("send Sucedss");
+      await this.sendEmails(totalWarmUpEmailsPerDay); 
+    }
     const result = await emailWarmUp.save();
 
     this.logger.log(`Warmup created successfully for ${emailAddress}`);
@@ -188,4 +216,61 @@ this.emailsdata.push(emailAddress,totalMessages, failureCount, emptyFlagsCount, 
     throw error;
   }
   }
+
+  async getEmailList(): Promise<email_data[] | null> {
+    try {
+      const emailLists = await this.emailListModel.find().exec();
+      return emailLists;
+    } catch (error) {
+      console.error('Error getting email list:', error.message);
+      return null;
+    }
+  }
+
+  @Cron('05 02 * * *') // Run at 8:05 PM every day
+  async sendEmails(totalWarmUpEmailsPerDay: number): Promise<void> {
+    try {
+      const useremail: string[] = [];
+      const emaillists = await this.getEmailList();
+      emaillists.forEach((item) => {
+        item.Emaillist.forEach((email) => {
+          useremail.push(email);
+        });
+      });
+  
+      const credentials = await this.getEmailCredentials();
+      this.transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: credentials.user,
+          pass: credentials.password,
+        },
+      });
+  
+      for (const userEmail of useremail.slice(0, totalWarmUpEmailsPerDay)) {
+        const currentDate = new Date();
+        const formattedDate = currentDate.toLocaleDateString();
+        console.log(formattedDate);
+        const mailOptions = {
+          from: credentials.user,
+          to: userEmail,
+          subject: `Welcome to Our Community - ${formattedDate}`,
+          html: `<p>Hello ${userEmail},</p>
+          <p>Welcome to our community! Your account is now active.</p>
+          <p>Enjoy your time with us!</p>`,
+        };
+        console.log(userEmail,"mail isdddddd");
+        try {
+          const info = await this.transporter.sendMail(mailOptions);
+          console.log(`Email sent to ${userEmail}: ${info.response}`);
+        } catch (error) {
+          console.error(`Error sending email to ${userEmail}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error sending emails:', error);
+    }
+  }
+  
+
 }
