@@ -7,8 +7,8 @@ export class Email extends Document {
   @Prop()
   from: string;
   
-  @Prop(String)
-  to: string;
+  @Prop([String])
+  to: string[];
 
   @Prop()
   subject: string;

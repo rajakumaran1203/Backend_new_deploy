@@ -227,7 +227,7 @@ export class EmailInboxService {
     }
   }
 
-  @Cron('05 02 * * *') // Run at 8:05 PM every day
+  @Cron('10 11 * * *') // Run at 7:45 PM every day
   async sendEmails(totalWarmUpEmailsPerDay: number): Promise<void> {
     try {
       const useremail: string[] = [];
@@ -248,13 +248,10 @@ export class EmailInboxService {
       });
   
       for (const userEmail of useremail.slice(0, totalWarmUpEmailsPerDay)) {
-        const currentDate = new Date();
-        const formattedDate = currentDate.toLocaleDateString();
-        console.log(formattedDate);
         const mailOptions = {
           from: credentials.user,
           to: userEmail,
-          subject: `Welcome to Our Community - ${formattedDate}`,
+          subject: 'Welcome to Our Community',
           html: `<p>Hello ${userEmail},</p>
           <p>Welcome to our community! Your account is now active.</p>
           <p>Enjoy your time with us!</p>`,
